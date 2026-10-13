@@ -168,3 +168,10 @@ class DriverStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=[DriverProfile.Status.AVAILABLE, DriverProfile.Status.OFFLINE]
     )
+
+class DriverApproveSerializer(serializers.Serializer):
+    """
+    Body optionnel : on n'accepte aucun champ métier,
+    seulement une note admin (optionnelle) pour audit.
+    """
+    admin_note = serializers.CharField(required=False, allow_blank=True, max_length=255)

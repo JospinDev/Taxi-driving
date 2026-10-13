@@ -1,6 +1,6 @@
-from django.urls import path, include
+from django.urls import include, path
 
 urlpatterns = [
-    # On ajoutera les modules ici au fur et à mesure :
     path('accounts/', include('keeper.urls.accounts')),
+    path('vehicles/', include('keeper.urls.vehicles')),
 ]

@@ -13,7 +13,7 @@ from keeper.permissions.accounts import IsAdminRole, IsDriver, IsDriverApproved
 from keeper.serializers.accounts import (
     ClientRegisterSerializer, DriverLocationSerializer, DriverProfileSerializer,
     DriverRegisterSerializer, DriverStatusSerializer, LoginSerializer,
-    UpdateMeSerializer, UserSerializer,
+    UpdateMeSerializer, UserSerializer, DriverApproveSerializer
 )
 
 
@@ -127,8 +127,7 @@ class DriverProfileViewSet(
     def get_permissions(self):
         if self.action in ('approve', 'suspend', 'update', 'partial_update'):
             return [IsAdminRole()]
-        if self.action in ('me', 'location', 'status'):
-            return [IsDriver()]
+        
         return super().get_permissions()
 
     # ---------- Queryset dynamique ----------
@@ -144,7 +143,7 @@ class DriverProfileViewSet(
         return DriverProfile.objects.none()
 
     # ---------- Actions ----------
-    @action(detail=False, methods=['get'], url_path='me')
+    @action(detail=False, methods=['get'], url_path='me', permission_classes=[IsDriver])
     def me(self, request):
         profile = getattr(request.user, 'driver_profile', None)
         if not profile:
@@ -192,7 +191,7 @@ class DriverProfileViewSet(
         profile.save(update_fields=['status'])
         return Response({'status': profile.status})
 
-    @action(detail=True, methods=['post'], url_path='approve')
+    @action(detail=True, methods=['post'], url_path='approve', serializer_class=DriverApproveSerializer)
     def approve(self, request, pk=None):
         profile = self.get_object()
         if profile.is_approved:
@@ -200,7 +199,7 @@ class DriverProfileViewSet(
                 {'detail': "Déjà approuvé."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        profile.approve()
+        profile.approve(admin_user=request.user)
         return Response(self.get_serializer(profile).data)
 
     @action(detail=True, methods=['post'], url_path='suspend')

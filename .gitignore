@@ -8,3 +8,5 @@ staticfiles/
 .DS_Store
 *.log
 jospin
+
+keeper/migrations
