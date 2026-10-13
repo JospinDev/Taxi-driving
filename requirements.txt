@@ -1,0 +1,41 @@
+# ===== Core =====
+Django
+djangorestframework
+
+# ===== Auth =====
+djangorestframework-simplejwt
+
+# ===== Base de données & Geo =====
+psycopg2-binary
+# inclus dans Django, nécessite GDAL/GEOS
+
+# ===== Filtres & Pagination =====
+django-filter
+
+# ===== CORS =====
+django-cors-headers
+
+# ===== Fichiers statiques & médias =====
+Pillow
+
+# ===== Env =====
+python-decouple
+
+# ===== Temps réel (WebSocket) =====
+channels
+channels-redis
+daphne
+
+# ===== Tâches async =====
+celery
+redis
+
+# ===== Notifications =====
+firebase-admin
+requests
+
+# ===== Documentation API =====
+drf-spectacular
+
+# ===== Utils =====
+django-extensions
