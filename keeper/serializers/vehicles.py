@@ -4,8 +4,69 @@ from rest_framework import serializers
 
 from keeper.models import DocumentType, Vehicle
 from keeper.serializers.common import EmptySerializer
+from keeper.serializers.fields import BinaryFileField
 
+# ============================================================
+# DOCUMENT — UPLOAD
+# ============================================================
+class DocumentUploadSerializer(serializers.Serializer):
+    """
+    Upload d'un document pour un véhicule.
+    Requête : multipart/form-data
+    """
+    doc_type = serializers.SlugField(max_length=50)
+    file = BinaryFileField(                                 # ⬅️ CHANGÉ
+        max_length=255,
+        help_text="Fichier PDF ou image (max 5 Mo).",
+    )
+    expires_at = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text="Date d'expiration (YYYY-MM-DD). Obligatoire si le type l'exige.",
+    )
 
+    def validate_doc_type(self, value):
+        if not DocumentType.objects.filter(code=value, is_active=True).exists():
+            raise serializers.ValidationError(
+                f"Type de document inconnu ou désactivé : {value}"
+            )
+        return value
+
+    def validate_file(self, value):
+        max_size = 5 * 1024 * 1024
+        if value.size > max_size:
+            raise serializers.ValidationError("Fichier trop volumineux (max 5 Mo).")
+
+        allowed_ext = ['.pdf', '.jpg', '.jpeg', '.png']
+        ext = os.path.splitext(value.name)[1].lower()
+        if ext not in allowed_ext:
+            raise serializers.ValidationError(
+                f"Format non supporté. Autorisés : {', '.join(allowed_ext)}"
+            )
+        return value
+
+    def validate(self, attrs):
+        doc_type_code = attrs['doc_type']
+        doc_type = DocumentType.objects.get(code=doc_type_code)
+        expires_at = attrs.get('expires_at')
+
+        if doc_type.requires_expiry:
+            if not expires_at:
+                raise serializers.ValidationError({
+                    'expires_at': f"Le document '{doc_type.label}' doit avoir une date d'expiration."
+                })
+            if expires_at <= timezone.now().date():
+                raise serializers.ValidationError({
+                    'expires_at': "La date d'expiration doit être dans le futur."
+                })
+        else:
+            if expires_at:
+                raise serializers.ValidationError({
+                    'expires_at': f"Le document '{doc_type.label}' n'accepte pas de date d'expiration."
+                })
+
+        return attrs
+    
 # ============================================================
 # VÉHICULE — LECTURE
 # ============================================================
@@ -66,70 +127,6 @@ class VehicleUpdateSerializer(serializers.ModelSerializer):
                 f"Année invalide (doit être entre 1980 et {current + 1})."
             )
         return value
-
-
-# ============================================================
-# DOCUMENT — UPLOAD
-# ============================================================
-class DocumentUploadSerializer(serializers.Serializer):
-    """
-    Upload d'un document pour un véhicule.
-    Requête : multipart/form-data
-    Champs  : doc_type, file, expires_at (optionnel selon le type)
-    """
-    doc_type = serializers.SlugField(max_length=50)
-    file = serializers.FileField(
-        max_length=255,
-        help_text="Fichier PDF ou image (max 5 Mo).",
-    )
-    expires_at = serializers.DateField(
-        required=False,
-        allow_null=True,
-        help_text="Date d'expiration (YYYY-MM-DD). Obligatoire si le type l'exige.",
-    )
-
-    def validate_doc_type(self, value):
-        if not DocumentType.objects.filter(code=value, is_active=True).exists():
-            raise serializers.ValidationError(
-                f"Type de document inconnu ou désactivé : {value}"
-            )
-        return value
-
-    def validate_file(self, value):
-        max_size = 5 * 1024 * 1024   # 5 Mo
-        if value.size > max_size:
-            raise serializers.ValidationError("Fichier trop volumineux (max 5 Mo).")
-
-        allowed_ext = ['.pdf', '.jpg', '.jpeg', '.png']
-        ext = os.path.splitext(value.name)[1].lower()
-        if ext not in allowed_ext:
-            raise serializers.ValidationError(
-                f"Format non supporté. Autorisés : {', '.join(allowed_ext)}"
-            )
-        return value
-
-    def validate(self, attrs):
-        doc_type_code = attrs['doc_type']
-        doc_type = DocumentType.objects.get(code=doc_type_code)
-        expires_at = attrs.get('expires_at')
-
-        if doc_type.requires_expiry:
-            if not expires_at:
-                raise serializers.ValidationError({
-                    'expires_at': f"Le document '{doc_type.label}' doit avoir une date d'expiration."
-                })
-            if expires_at <= timezone.now().date():
-                raise serializers.ValidationError({
-                    'expires_at': "La date d'expiration doit être dans le futur."
-                })
-        else:
-            if expires_at:
-                raise serializers.ValidationError({
-                    'expires_at': f"Le document '{doc_type.label}' n'accepte pas de date d'expiration."
-                })
-
-        return attrs
-
 
 # ============================================================
 # DOCUMENT — VALIDATION (admin)

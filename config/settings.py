@@ -37,7 +37,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='', cast=Csv())
 
 
 # Application definition
@@ -205,7 +204,23 @@ SIMPLE_JWT = {
 # ============================================================
 # CORS
 # ============================================================
-CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
+# CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
+# CORS_ALLOW_CREDENTIALS = True
+# CORS configuration
+CORS_ALLOW_ALL_ORIGINS = config(
+    'CORS_ALLOW_ALL_ORIGINS',
+    default=False,
+    cast=bool,
+)
+
+CORS_ALLOWED_ORIGINS = config(
+    'CORS_ALLOWED_ORIGINS',
+    default='',
+    cast=Csv(),
+)
+
+ALLOWED_HOSTS = ['*']
+
 CORS_ALLOW_CREDENTIALS = True
 
 # ============================================================

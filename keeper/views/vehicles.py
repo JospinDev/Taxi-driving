@@ -127,31 +127,7 @@ class VehicleViewSet(
     # ---------- UPLOAD DOCUMENT ----------
     @extend_schema(
         summary="Uploader un document pour un véhicule",
-        description="Envoie un fichier (PDF ou image) pour un type de document donné.",
-        request={
-            'multipart/form-data': {
-                'type': 'object',
-                'properties': {
-                    'doc_type': {
-                        'type': 'string',
-                        'description': "Code du type de document (ex: carte_rose).",
-                    },
-                    'file': {
-                        'type': 'string',
-                        'format': 'binary',      # ⬅️ LA ligne magique
-                        'description': "Fichier PDF ou image (max 5 Mo).",
-                    },
-                    'expires_at': {
-                        'type': 'string',
-                        'format': 'date',
-                        'nullable': True,
-                        'description': "Date d'expiration (obligatoire si le type l'exige).",
-                    },
-                },
-                'required': ['doc_type', 'file'],
-            }
-        },
-        responses={200: DocumentUploadSerializer},
+        description="Envoie un fichier (PDF ou image). Multipart/form-data.",
     )
     @action(
         detail=True, methods=['post'], url_path='upload-document',
