@@ -205,7 +205,14 @@ class DriverProfileViewSet(
                         status=status.HTTP_400_BAD_REQUEST,
                     )
             profile.status = new_status
-            profile.save(update_fields=['status', 'updated_at'])
+            update_fields = ['status', 'updated_at']
+            lat = serializer.validated_data.get('lat')
+            lng = serializer.validated_data.get('lng')
+            if lat is not None and lng is not None and new_status == DriverProfile.Status.AVAILABLE:
+                profile.last_location = Point(lng, lat, srid=4326)
+                profile.last_location_at = timezone.now()
+                update_fields += ['last_location', 'last_location_at']
+            profile.save(update_fields=update_fields)
         return Response({'status': profile.status})
 
     @action(detail=True, methods=['post'], url_path='approve', serializer_class=DriverApproveSerializer)

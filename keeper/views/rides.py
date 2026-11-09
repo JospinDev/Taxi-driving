@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from keeper.models import Ride, RideOffer
 from keeper.permissions.accounts import IsAdminRole, IsClient, IsDriverApproved
+from keeper.serializers.chat import RideMessageCreateSerializer, RideMessageSerializer
 from keeper.serializers.common import EmptySerializer
 from keeper.serializers.rides import (
     ConfirmPaymentSerializer, NearbyDriverSerializer, NearbyDriversQuerySerializer,
@@ -16,7 +17,7 @@ from keeper.serializers.rides import (
     RideEstimateResultSerializer, RideEstimateSerializer, RideOfferSerializer,
     RideRateSerializer, RideSerializer, RideTrackPointSerializer, TrackBatchSerializer,
 )
-from keeper.services import dispatch, payments, tracking
+from keeper.services import chat, dispatch, payments, tracking
 from keeper.services.geo import make_point
 
 RIDE_RELATED = ('client', 'driver__user', 'vehicle')
@@ -40,6 +41,9 @@ class RideViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
     Commun :
       GET  /rides/  /rides/{id}/  /rides/current/  /rides/{id}/route/
       POST /rides/{id}/cancel/
+      GET  /rides/{id}/messages/        fil de discussion
+      POST /rides/{id}/messages/        envoyer un message
+      POST /rides/{id}/messages/read/   marquer le fil comme lu
     Admin :
       POST /rides/{id}/confirm-payment/  paiement mobile money reçu
     """
@@ -161,6 +165,38 @@ class RideViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
+
+    # ---------- CHAT (client ↔ chauffeur) ----------
+    @extend_schema(methods=['GET'], responses=RideMessageSerializer(many=True))
+    @extend_schema(
+        methods=['POST'], request=RideMessageCreateSerializer,
+        responses=RideMessageSerializer,
+    )
+    @action(detail=True, methods=['get', 'post'], url_path='messages')
+    def messages(self, request, pk=None):
+        if request.method == 'POST':
+            data = self._validated(RideMessageCreateSerializer)
+            message = chat.send_message(pk, request.user, data['body'])
+            return Response(
+                RideMessageSerializer(message, context=self.get_serializer_context()).data,
+                status=status.HTTP_201_CREATED,
+            )
+
+        ride = chat.get_ride_for_chat(pk, request.user)
+        thread = chat.thread(ride)
+        page = self.paginate_queryset(thread)
+        serializer = RideMessageSerializer(
+            page if page is not None else thread, many=True,
+            context=self.get_serializer_context(),
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @extend_schema(request=EmptySerializer, responses=None)
+    @action(detail=True, methods=['post'], url_path='messages/read')
+    def read_messages(self, request, pk=None):
+        return Response({'updated': chat.mark_thread_read(pk, request.user)})
 
     # ---------- CHAUFFEUR ----------
     @extend_schema(responses=RideOfferSerializer(many=True))

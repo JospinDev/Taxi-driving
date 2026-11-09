@@ -38,6 +38,7 @@ POPUP = {
     'ride_cancelled': {'ttl_s': 8, 'priority': 'high'},
     'driver_cancelled': {'ttl_s': 8, 'priority': 'high'},
     'no_driver': {'ttl_s': 8, 'priority': 'high'},
+    'ride_message': {'ttl_s': 6, 'priority': 'normal'},
 }
 DEFAULT_POPUP = {'ttl_s': 5, 'priority': 'normal'}
 
@@ -97,6 +98,11 @@ MESSAGES = {
     'no_driver': {
         'title': "Aucun chauffeur disponible",
         'body': "Désolé, aucun chauffeur n'est disponible pour le moment. Réessayez dans quelques minutes.",
+    },
+    # ---- Commun (client ↔ chauffeur) ----
+    'ride_message': {
+        'title': "Message de {sender_name}",
+        'body': "{preview}",
     },
 }
 

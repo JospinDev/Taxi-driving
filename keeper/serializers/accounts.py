@@ -169,6 +169,9 @@ class DriverStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=[DriverProfile.Status.AVAILABLE, DriverProfile.Status.OFFLINE]
     )
+    # Optionnel : envoyer la position en même temps que le passage en ligne.
+    lat = serializers.FloatField(required=False, min_value=-90, max_value=90)
+    lng = serializers.FloatField(required=False, min_value=-180, max_value=180)
 
 class DriverApproveSerializer(serializers.Serializer):
     """

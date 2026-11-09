@@ -294,7 +294,7 @@ DISPATCH = {
     'DRIVERS_PER_WAVE': config('DISPATCH_DRIVERS_PER_WAVE', default=5, cast=int),
     'OFFER_TIMEOUT_S': config('DISPATCH_OFFER_TIMEOUT_S', default=20, cast=int),
     'EMPTY_WAVE_RETRY_S': 5,                  # aucune voiture trouvée → vague suivante rapide
-    'LOCATION_MAX_AGE_S': 120,                # position GPS du chauffeur trop vieille = ignoré
+    'LOCATION_MAX_AGE_S': 300,                # position GPS du chauffeur trop vieille = ignoré (5 min)
     'ACCEPT_LOCK_TIMEOUT_S': 10,              # TTL du verrou Redis d'acceptation
     'ROAD_FACTOR': 1.3,                       # distance route ≈ vol d'oiseau × 1.3 (estimation)
 }

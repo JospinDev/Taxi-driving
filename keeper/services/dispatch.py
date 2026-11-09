@@ -5,6 +5,8 @@ Ordre de verrouillage (TOUJOURS le même pour éviter les deadlocks) :
     Ride  →  RideOffer  →  DriverProfile  →  Wallet
 """
 import logging
+import threading
+import time
 from datetime import timedelta
 
 from django.conf import settings
@@ -101,12 +103,69 @@ def broadcast_status(ride):
     ))
 
 
-def schedule_dispatch(ride_id, dispatch_round, wave, countdown=0):
-    from keeper.tasks.dispatch import dispatch_ride
+_WORKER_PROBE = {'checked_at': 0.0, 'available': False}
+_WORKER_PROBE_TTL_S = 30
+
+
+def celery_worker_available():
+    """
+    Un worker consomme-t-il réellement la file ?
+
+    `apply_async` ne lève que si le *broker* est injoignable : avec Redis up mais
+    sans worker, la tâche est empilée et jamais exécutée (le dispatch ne part
+    jamais). On interroge donc les workers, avec un cache court pour ne pas
+    payer le ping à chaque course.
+    """
+    now = time.monotonic()
+    if now - _WORKER_PROBE['checked_at'] < _WORKER_PROBE_TTL_S:
+        return _WORKER_PROBE['available']
     try:
-        dispatch_ride.apply_async((ride_id, dispatch_round, wave), countdown=countdown)
+        from config.celery import app as celery_app
+        available = bool(celery_app.control.ping(timeout=1.0))
     except Exception:
-        logger.exception("Impossible de programmer le dispatch de la course %s", ride_id)
+        available = False
+    _WORKER_PROBE.update(checked_at=now, available=available)
+    return available
+
+
+def _run_waves_inline(ride_id, dispatch_round, wave, countdown):
+    """Enchaîne les vagues comme le ferait la tâche Celery, dans un thread."""
+    cur_wave, cur_countdown = wave, countdown
+    while True:
+        if cur_countdown:
+            time.sleep(min(cur_countdown, 60))
+        try:
+            next_countdown = run_dispatch_wave(ride_id, dispatch_round, cur_wave)
+        except Exception:
+            logger.exception(
+                "Dispatch inline échoué (course %s, vague %s)", ride_id, cur_wave,
+            )
+            return
+        if next_countdown is None:
+            return
+        cur_countdown = next_countdown
+        cur_wave += 1
+
+
+def schedule_dispatch(ride_id, dispatch_round, wave, countdown=0):
+    if celery_worker_available():
+        from keeper.tasks.dispatch import dispatch_ride
+        try:
+            dispatch_ride.apply_async((ride_id, dispatch_round, wave), countdown=countdown)
+            return
+        except Exception:
+            logger.warning("Envoi Celery échoué pour la course %s — dispatch inline", ride_id)
+
+    logger.warning(
+        "Aucun worker Celery — dispatch inline pour la course %s (dev uniquement, "
+        "lancez « celery -A config worker -l info --pool=solo » en prod)",
+        ride_id,
+    )
+    threading.Thread(
+        target=_run_waves_inline,
+        args=(ride_id, dispatch_round, wave, countdown),
+        daemon=True,
+    ).start()
 
 
 # ============================================================
