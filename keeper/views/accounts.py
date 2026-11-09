@@ -8,7 +8,7 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from keeper.models import DriverProfile, User
+from keeper.models import Contract, DriverProfile, User, Vehicle
 from keeper.permissions.accounts import IsAdminRole, IsDriver, IsDriverApproved
 from keeper.serializers.accounts import (
     ClientRegisterSerializer, DriverLocationSerializer, DriverProfileSerializer,
@@ -169,6 +169,7 @@ class DriverProfileViewSet(
             srid=4326,
         )
         profile.last_location_at = timezone.now()
+        # update_fields : n'écrase jamais le statut modifié par une acceptation concurrente
         profile.save(update_fields=['last_location', 'last_location_at'])
         return Response({'detail': "Position mise à jour."})
 
@@ -180,15 +181,31 @@ class DriverProfileViewSet(
     def status(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        new_status = serializer.validated_data['status']
 
-        profile = request.user.driver_profile
-        if profile.status == DriverProfile.Status.BUSY:
-            return Response(
-                {'detail': "Impossible de changer le statut pendant une course."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        profile.status = serializer.validated_data['status']
-        profile.save(update_fields=['status'])
+        with transaction.atomic():
+            # Verrou : évite qu'une acceptation de course (→ BUSY) soit écrasée
+            profile = DriverProfile.objects.select_for_update().get(user=request.user)
+            if profile.status == DriverProfile.Status.BUSY:
+                return Response(
+                    {'detail': "Impossible de changer le statut pendant une course."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if new_status == DriverProfile.Status.AVAILABLE:
+                if not Vehicle.objects.filter(driver=profile, is_active=True).exists():
+                    return Response(
+                        {'detail': "Aucun véhicule actif : impossible de passer disponible."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if not Contract.objects.filter(
+                    driver=profile, is_active=True, signed_at__isnull=False,
+                ).exists():
+                    return Response(
+                        {'detail': "Aucun contrat signé et actif : impossible de passer disponible."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            profile.status = new_status
+            profile.save(update_fields=['status', 'updated_at'])
         return Response({'status': profile.status})
 
     @action(detail=True, methods=['post'], url_path='approve', serializer_class=DriverApproveSerializer)
@@ -205,9 +222,16 @@ class DriverProfileViewSet(
     @action(detail=True, methods=['post'], url_path='suspend')
     def suspend(self, request, pk=None):
         profile = self.get_object()
-        profile.is_approved = False
-        profile.status = DriverProfile.Status.PENDING
-        profile.save(update_fields=['is_approved', 'status'])
+        with transaction.atomic():
+            profile = DriverProfile.objects.select_for_update().get(pk=profile.pk)
+            if profile.status == DriverProfile.Status.BUSY:
+                return Response(
+                    {'detail': "Chauffeur en course : annulez ou terminez la course avant de le suspendre."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            profile.is_approved = False
+            profile.status = DriverProfile.Status.PENDING
+            profile.save(update_fields=['is_approved', 'status', 'updated_at'])
         return Response(self.get_serializer(profile).data)
 
 

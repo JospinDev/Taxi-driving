@@ -42,6 +42,7 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 # Application definition
 
 DJANGO_APPS = [
+    'daphne',                          # ⬅️ runserver en ASGI (WebSocket) — doit être en 1er
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -219,7 +220,7 @@ CORS_ALLOWED_ORIGINS = config(
     cast=Csv(),
 )
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -236,11 +237,18 @@ SPECTACULAR_SETTINGS = {
 # ============================================================
 # CHANNELS (WebSocket temps réel)
 # ============================================================
+REDIS_URL = config('REDIS_URL')
+
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            'hosts': [config('REDIS_URL')],
+            'hosts':[{
+                'address': REDIS_URL,
+                'socket_timeout': None,
+                'socket_connect_timeout': 5,
+                'health_check_interval': 30,
+            }],
         },
     },
 }
@@ -248,12 +256,22 @@ CHANNEL_LAYERS = {
 # ============================================================
 # CELERY
 # ============================================================
-CELERY_BROKER_URL = config('REDIS_URL')
-CELERY_RESULT_BACKEND = config('REDIS_URL')
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_ACKS_LATE = True                 # une tâche n'est perdue si le worker crash
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_IGNORE_RESULT = True             # on ne lit jamais les résultats → moins de Redis
+CELERY_BEAT_SCHEDULE = {
+    # Renvoie les notifications restées PENDING (broker indisponible, crash…)
+    'retry-pending-notifications': {
+        'task': 'keeper.tasks.notifications.retry_pending_notifications',
+        'schedule': 300.0,
+    },
+}
 
 # ============================================================
 # CACHE (Redis)
@@ -261,8 +279,42 @@ CELERY_TIMEZONE = TIME_ZONE
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': config('REDIS_URL'),
+        'LOCATION': REDIS_URL,
     }
+}
+
+# ============================================================
+# MÉTIER : DISPATCH / TRACKING / PAIEMENT / NOTIFICATIONS
+# ============================================================
+CURRENCY = config('CURRENCY', default='BIF')
+
+DISPATCH = {
+    # Rayon de recherche (mètres) par vague : on élargit si personne n'accepte
+    'SEARCH_RADII_M': [2000, 4000, 7000],
+    'DRIVERS_PER_WAVE': config('DISPATCH_DRIVERS_PER_WAVE', default=5, cast=int),
+    'OFFER_TIMEOUT_S': config('DISPATCH_OFFER_TIMEOUT_S', default=20, cast=int),
+    'EMPTY_WAVE_RETRY_S': 5,                  # aucune voiture trouvée → vague suivante rapide
+    'LOCATION_MAX_AGE_S': 120,                # position GPS du chauffeur trop vieille = ignoré
+    'ACCEPT_LOCK_TIMEOUT_S': 10,              # TTL du verrou Redis d'acceptation
+    'ROAD_FACTOR': 1.3,                       # distance route ≈ vol d'oiseau × 1.3 (estimation)
+}
+
+TRACKING = {
+    'MAX_SPEED_KMH': 180,                     # au-delà = saut GPS, point ignoré
+    'MIN_MOVE_M': 5,                          # bruit GPS : déplacement < 5 m = immobile
+    'MAX_POINTS_PER_BATCH': 100,
+    'MAX_FUTURE_SKEW_S': 30,
+}
+
+# Firebase Cloud Messaging : chemin du JSON du compte de service
+FIREBASE_CREDENTIALS = config('FIREBASE_CREDENTIALS', default='')
+
+# WhatsApp Cloud API (Meta)
+WHATSAPP = {
+    'TOKEN': config('WHATSAPP_TOKEN', default=''),
+    'PHONE_NUMBER_ID': config('WHATSAPP_PHONE_NUMBER_ID', default=''),
+    'API_VERSION': config('WHATSAPP_API_VERSION', default='v21.0'),
+    'TIMEOUT_S': 10,
 }
 
 # ============================================================

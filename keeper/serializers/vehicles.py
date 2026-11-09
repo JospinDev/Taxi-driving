@@ -72,7 +72,7 @@ class DocumentUploadSerializer(serializers.Serializer):
 # ============================================================
 class VehicleSerializer(serializers.ModelSerializer):
     driver_name = serializers.CharField(source='driver.user.username', read_only=True)
-    required_docs_validated = serializers.BooleanField(read_only=True)
+    required_docs_validated = serializers.SerializerMethodField()
 
     class Meta:
         model = Vehicle
@@ -88,6 +88,17 @@ class VehicleSerializer(serializers.ModelSerializer):
             'required_docs_validated',
             'created_at', 'updated_at',
         ]
+
+    def get_required_docs_validated(self, obj) -> bool:
+        # Une seule requête DocumentType par réponse (au lieu d'une par véhicule)
+        codes = self.context.get('_required_doc_codes')
+        if codes is None:
+            codes = list(
+                DocumentType.objects.filter(is_required=True, is_active=True)
+                .values_list('code', flat=True)
+            )
+            self.context['_required_doc_codes'] = codes
+        return obj.required_docs_validated_for(codes)
 
 
 # ============================================================

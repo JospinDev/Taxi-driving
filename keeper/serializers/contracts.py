@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from keeper.models import Contract
+from keeper.serializers.accounts import UserBasicSerializer
 
 
 # ============================================================
@@ -9,6 +10,7 @@ from keeper.models import Contract
 class ContractSerializer(serializers.ModelSerializer):
     driver_name = serializers.CharField(source='driver.user.username', read_only=True)
     is_signed = serializers.BooleanField(read_only=True)
+    created_by = UserBasicSerializer(read_only=True)  
 
     class Meta:
         model = Contract

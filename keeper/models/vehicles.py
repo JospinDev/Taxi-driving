@@ -99,7 +99,10 @@ class Vehicle(models.Model):
         required_codes = DocumentType.objects.filter(
             is_required=True, is_active=True,
         ).values_list('code', flat=True)
+        return self.required_docs_validated_for(required_codes)
 
+    def required_docs_validated_for(self, required_codes):
+        """Version sans requête : les codes sont fournis (cache par requête HTTP)."""
         docs = self.documents or {}
         return all(
             docs.get(code, {}).get('is_validated', False)

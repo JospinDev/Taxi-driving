@@ -56,6 +56,14 @@ class Contract(models.Model):
         indexes = [
             models.Index(fields=['driver', 'is_active']),
         ]
+        constraints = [
+            # Garantie en base : jamais deux contrats actifs pour un chauffeur
+            models.UniqueConstraint(
+                fields=['driver'],
+                condition=models.Q(is_active=True),
+                name='unique_active_contract_per_driver',
+            ),
+        ]
 
     def __str__(self):
         return f"Contrat #{self.id} — {self.driver.user.username} ({self.commission_percent}%)"

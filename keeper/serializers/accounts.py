@@ -4,7 +4,7 @@ from django.db import transaction
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from keeper.models import User, DriverProfile
+from keeper.models import DriverProfile, User, Wallet
 
 
 # ============================================================
@@ -109,7 +109,8 @@ class DriverRegisterSerializer(serializers.ModelSerializer):
         user.set_password(password)
         user.save()
 
-        DriverProfile.objects.create(user=user, license_number=license_number)
+        profile = DriverProfile.objects.create(user=user, license_number=license_number)
+        Wallet.objects.create(driver=profile)
         return user
 
 
@@ -175,3 +176,10 @@ class DriverApproveSerializer(serializers.Serializer):
     seulement une note admin (optionnelle) pour audit.
     """
     admin_note = serializers.CharField(required=False, allow_blank=True, max_length=255)
+
+class UserBasicSerializer(serializers.ModelSerializer):
+    """Version allégée pour les relations FK (created_by, validé par, etc.)"""
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name', 'role']
+        read_only_fields = fields

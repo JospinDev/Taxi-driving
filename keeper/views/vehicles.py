@@ -103,6 +103,8 @@ class VehicleViewSet(
             return DocumentUploadSerializer
         if self.action == 'validate_document':
             return DocumentValidateSerializer
+        if self.action in ('activate', 'deactivate'):
+            return EmptySerializer
         return VehicleSerializer
 
     # ---------- CREATE ----------
@@ -150,18 +152,21 @@ class VehicleViewSet(
 
         saved_path = default_storage.save(rel_path, file)
 
-        vehicle.set_document(doc_type, {
-            'file': saved_path,
-            'original_name': file.name,
-            'size_bytes': file.size,
-            'uploaded_at': timezone.now().isoformat(),
-            'expires_at': expires_at.isoformat() if expires_at else None,
-            'is_validated': False,
-            'validated_by': None,
-            'validated_at': None,
-            'note': None,
-        })
-        vehicle.save(update_fields=['documents', 'updated_at'])
+        with transaction.atomic():
+            # Verrou : deux uploads simultanés ne doivent pas s'écraser le JSONB
+            vehicle = Vehicle.objects.select_for_update().get(pk=vehicle.pk)
+            vehicle.set_document(doc_type, {
+                'file': saved_path,
+                'original_name': file.name,
+                'size_bytes': file.size,
+                'uploaded_at': timezone.now().isoformat(),
+                'expires_at': expires_at.isoformat() if expires_at else None,
+                'is_validated': False,
+                'validated_by': None,
+                'validated_at': None,
+                'note': None,
+            })
+            vehicle.save(update_fields=['documents', 'updated_at'])
 
         return Response({
             'detail': f"Document '{doc_type}' enregistré.",
@@ -183,21 +188,23 @@ class VehicleViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        doc = vehicle.get_document(doc_type)
-        if not doc:
-            return Response(
-                {'detail': "Document inexistant."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        with transaction.atomic():
+            vehicle = Vehicle.objects.select_for_update().get(pk=vehicle.pk)
+            doc = vehicle.get_document(doc_type)
+            if not doc:
+                return Response(
+                    {'detail': "Document inexistant."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        if doc.get('is_validated'):
-            return Response(
-                {'detail': "Impossible de supprimer un document validé."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            if doc.get('is_validated'):
+                return Response(
+                    {'detail': "Impossible de supprimer un document validé."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        vehicle.remove_document(doc_type)
-        vehicle.save(update_fields=['documents', 'updated_at'])
+            vehicle.remove_document(doc_type)
+            vehicle.save(update_fields=['documents', 'updated_at'])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     # ---------- VALIDATE DOCUMENT (ADMIN) ----------
@@ -215,19 +222,21 @@ class VehicleViewSet(
         is_validated = serializer.validated_data['is_validated']
         note = serializer.validated_data.get('note', '')
 
-        doc = vehicle.get_document(doc_type)
-        if not doc:
-            return Response(
-                {'detail': f"Aucun document '{doc_type}' à valider."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        with transaction.atomic():
+            vehicle = Vehicle.objects.select_for_update().get(pk=vehicle.pk)
+            doc = vehicle.get_document(doc_type)
+            if not doc:
+                return Response(
+                    {'detail': f"Aucun document '{doc_type}' à valider."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        doc['is_validated'] = is_validated
-        doc['validated_by'] = request.user.id
-        doc['validated_at'] = timezone.now().isoformat()
-        doc['note'] = note
-        vehicle.set_document(doc_type, doc)
-        vehicle.save(update_fields=['documents', 'updated_at'])
+            doc['is_validated'] = is_validated
+            doc['validated_by'] = request.user.id
+            doc['validated_at'] = timezone.now().isoformat()
+            doc['note'] = note
+            vehicle.set_document(doc_type, doc)
+            vehicle.save(update_fields=['documents', 'updated_at'])
 
         return Response({
             'detail': f"Document '{doc_type}' {'validé' if is_validated else 'refusé'}.",

@@ -6,7 +6,7 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from keeper.models import Contract
+from keeper.models import Contract, DriverProfile
 from keeper.permissions.accounts import IsAdminRole, IsDriver
 from keeper.permissions.contracts import IsContractOwnerOrAdmin
 from keeper.serializers.common import EmptySerializer
@@ -82,6 +82,8 @@ class ContractViewSet(
             return ContractCreateSerializer
         if self.action in ('update', 'partial_update'):
             return ContractUpdateSerializer
+        if self.action in ('sign', 'activate', 'deactivate'):
+            return EmptySerializer
         return ContractSerializer
 
     # ---------- CREATE ----------
@@ -89,6 +91,16 @@ class ContractViewSet(
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        # Verrou chauffeur + re-vérification : deux admins ne peuvent pas créer
+        # simultanément deux contrats en attente pour le même chauffeur.
+        driver = serializer.validated_data['driver']
+        DriverProfile.objects.select_for_update().filter(pk=driver.pk).exists()
+        if Contract.objects.filter(driver=driver, signed_at__isnull=True).exists():
+            return Response(
+                {'driver': ["Ce chauffeur a déjà un contrat en attente de signature."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         contract = serializer.save(created_by=request.user)
         return Response(
             ContractSerializer(contract).data,
@@ -107,18 +119,19 @@ class ContractViewSet(
 
         contract = self.get_object()   # get_queryset filtre déjà par driver
 
-        if contract.is_signed:
-            return Response(
-                {'detail': "Contrat déjà signé."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         # Récupérer l'IP du client (derrière proxy éventuel)
         ip = (
             request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip()
             or request.META.get('REMOTE_ADDR')
         )
-        contract.sign(ip_address=ip)
+        with transaction.atomic():
+            contract = Contract.objects.select_for_update().get(pk=contract.pk)
+            if contract.is_signed:
+                return Response(
+                    {'detail': "Contrat déjà signé."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            contract.sign(ip_address=ip)
 
         return Response({
             'detail': "Contrat signé avec succès.",
@@ -143,13 +156,14 @@ class ContractViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Désactiver les autres contrats actifs du même chauffeur
-        Contract.objects.filter(
-            driver=contract.driver, is_active=True,
-        ).exclude(pk=contract.pk).update(is_active=False)
-
-        contract.is_active = True
-        contract.save(update_fields=['is_active', 'updated_at'])
+        with transaction.atomic():
+            # Verrou chauffeur : sérialise les activations concurrentes
+            DriverProfile.objects.select_for_update().filter(pk=contract.driver_id).exists()
+            Contract.objects.filter(
+                driver_id=contract.driver_id, is_active=True,
+            ).exclude(pk=contract.pk).update(is_active=False)
+            contract.is_active = True
+            contract.save(update_fields=['is_active', 'updated_at'])
         return Response(ContractSerializer(contract).data)
 
     # ---------- DEACTIVATE (admin) ----------
